@@ -1,25 +1,3 @@
-Absolut, Ben. Perfekt, das ist ein super Plan. Ein gutes README ist das A und O für jedes GitHub-Repo. Ich werde den Bericht, den wir gerade fertiggestellt haben, als Grundlage nehmen und deine Vorlage exakt ausfüllen.
-
-Ich achte darauf, alle deine neuen Anweisungen umzusetzen:
-
-Ich gebe alles in Deutsch aus.
-
-Ich füge den Disclaimer hinzu.
-
-Ich stelle sicher, dass alle Links vollständig und als reiner Text sichtbar sind.
-
-Ich verwende "Ben C. - Cyber Security Reports".
-
-Meine Ausgabe wird reines Markdown sein, das du direkt in eine README.md-Datei kopieren kannst.
-
-Basierend auf den von dir bereitgestellten Daten und dem Inhalt des "Thirteen"-Berichts, den wir gerade erstellt haben, hier ist das fertige README:
-
-code
-Markdown
-download
-content_copy
-expand_less
-
 # Thirteen - HackMyVM (Easy)
  
 ![Thirteen.png](Thirteen.png)
