@@ -5,7 +5,7 @@
 ## Übersicht
 
 *   **VM:** Thirteen
-*   **Plattform:** HackMyVM (https://hackmyvm.eu/machines/machine.php?Thirteen)
+*   **Plattform:** HackMyVM (https://hackmyvm.eu/machines/machine.php?vm=Thirteen)
 *   **Schwierigkeit:** Easy
 *   **Autor der VM:** DarkSpirit
 *   **Datum des Writeups:** 7. August 2025
